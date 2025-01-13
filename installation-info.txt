@@ -1,0 +1,290 @@
+Step #1:Setting Up the Ubuntu Instance
+First Update the package list.
+
+sudo apt update
+Monitor GitLab Pipelines Using Prometheus and Grafana 1
+Install Docker and pip if it’s not already installed.
+
+sudo apt install -y docker.io python3-pip
+Monitor GitLab Pipelines Using Prometheus and Grafana 2
+check it version to confirm the installation.
+
+docker --version
+Monitor GitLab Pipelines Using Prometheus and Grafana 3
+pip3 --version
+Monitor GitLab Pipelines Using Prometheus and Grafana 4
+Install Docker-Compose to manage multiple containers.
+
+sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+Monitor GitLab Pipelines Using Prometheus and Grafana 5
+Change its permissions.
+
+sudo chmod +x /usr/local/bin/docker-compose
+Monitor GitLab Pipelines Using Prometheus and Grafana 6
+check it version to confirm the installation.
+
+docker-compose --version
+Monitor GitLab Pipelines Using Prometheus and Grafana 7
+Install the Virtual environment.
+
+sudo apt install python3.12-venv
+Monitor GitLab Pipelines Using Prometheus and Grafana 8
+Create a new virtual environment named venv.
+
+python3 -m venv venv
+Monitor GitLab Pipelines Using Prometheus and Grafana 9
+Activate the virtual environment.
+
+source venv/bin/activate
+Monitor GitLab Pipelines Using Prometheus and Grafana 10
+Step #2:Create Project Structure and Files
+Create a folder for your project and navigate into it.
+
+mkdir Gitlab-monitoring
+cd Gitlab-monitoring
+Monitor GitLab Pipelines Using Prometheus and Grafana 11
+Inside this folder, create subfolder for Prometheus and navigate to it.
+
+mkdir Prometheus
+cd Prometheus
+Monitor GitLab Pipelines Using Prometheus and Grafana 12
+create a prometheus configuration file
+
+nano prometheus.yml
+Monitor GitLab Pipelines Using Prometheus and Grafana 13
+add the following code into it.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: monitoring
+
+    static_configs:
+      - targets: ['<EC2-Public-IP>:8080']
+
+  - job_name: monitoring_manual
+
+    static_configs:
+      - targets: ['<EC2-Public-IP>:8500']
+Monitor GitLab Pipelines Using Prometheus and Grafana 14
+Back to project directory.
+
+cd ..
+Monitor GitLab Pipelines Using Prometheus and Grafana 15
+Create Dockerfile.
+
+nano Dockerfile
+Monitor GitLab Pipelines Using Prometheus and Grafana 16
+add the following code into it.
+
+# set base image (host OS)
+FROM python:3.12
+
+WORKDIR /code
+
+# copy the dependencies file to the working directory
+COPY requirement.txt .
+
+# install dependencies
+RUN pip install -r requirement.txt
+
+COPY . .
+
+
+# command to run on container start
+CMD [ "python", "gcexporter.py" ]
+Monitor GitLab Pipelines Using Prometheus and Grafana 17
+Create a docker-compose.yml file.
+
+nano docker-compose.yml
+Monitor GitLab Pipelines Using Prometheus and Grafana 18
+add following code into it.
+
+version: '3.8'
+services:
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    ports:
+      - 3000:3000
+    environment:
+       GF_INSTALL_PLUGINS: grafana-polystat-panel,yesoreyeram-boomtable-panel
+    links:
+      - prometheus
+
+  prometheus:
+      image: docker.io/prom/prometheus:v2.28.1
+      ports:
+       - 9090:9090
+      links:
+       - gitlab-ci-pipelines-exporter
+      volumes:
+       - ./Prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  gitlab-ci-pipelines-exporter:
+    image: docker.io/mvisonneau/gitlab-ci-pipelines-exporter:v0.5.2
+    ports:
+      - 8080:8080
+    environment:
+      GCPE_CONFIG: /etc/gitlab-ci-pipelines-exporter.yml
+    volumes:
+      - type: bind
+        source: ./gitlab-ci-pipelines-exporter.yml
+        target: /etc/gitlab-ci-pipelines-exporter.yml
+
+  customized_exporter:
+        build: .
+        ports:
+            - "8500:8500"
+Monitor GitLab Pipelines Using Prometheus and Grafana 19
+Create a configuration file for the GitLab CI Pipelines Exporter.
+
+nano gitlab-ci-pipelines-exporter.yml
+Monitor GitLab Pipelines Using Prometheus and Grafana 20
+add the following code into it. Get the token from gitlab and project id from your project setting.
+
+log:
+  level: info
+
+gitlab:
+  url: https://gitlab.com
+  token: '<gitlab_token>'
+
+# Example public projects to monitor
+projects:
+  - name: demo/test_pipeline
+    # Pull environments related metrics prefixed with 'stable' for this project
+    pull:
+      environments:
+        enabled: true
+      refs:
+        branches:
+          # Monitor pipelines related to project branches
+          # (optional, default: true)
+          enabled: true
+
+          # Filter for branches to include
+          # (optional, default: "^main|master$" -- main/master branches)
+          regexp: ".*"
+        merge_requests:
+          # Monitor pipelines related to project merge requests
+          # (optional, default: false)
+          enabled: true
+Monitor GitLab Pipelines Using Prometheus and Grafana 21
+Create a gcexporter.py. This is a customized exporter to retrieve total branch count in the project.
+
+nano gcexporter.py
+Monitor GitLab Pipelines Using Prometheus and Grafana 22
+add the following code into it.
+
+import random
+import time
+import re
+import gitlab
+import requests
+from requests.auth import HTTPBasicAuth
+import json
+import time
+import random
+from prometheus_client import start_http_server, Gauge
+
+group_name='demo'
+gitlab_server='https://gitlab.com/'
+auth_token= '<gitlab _token>'
+
+gl = gitlab.Gitlab(url=gitlab_server, private_token=auth_token)
+group = gl.groups.get(group_name)
+project_id= <project_id>
+project = gl.projects.get(project_id)
+gitlab_branch_count = Gauge('gitlab_branch_count', "Number of Branch Count")
+def get_metrics():
+   gitlab_branch_count.set(len(project.branches.list()))
+
+if __name__ == '__main__':
+    start_http_server(8500)
+    while True:
+        get_metrics()
+        time.sleep(43200)
+Monitor GitLab Pipelines Using Prometheus and Grafana 23
+Create a requirement.txt file.
+
+nano requirement.txt
+Monitor GitLab Pipelines Using Prometheus and Grafana 24
+add the following code into it.
+
+python-gitlab==3.1.1
+prometheus-client==0.13.1
+Monitor GitLab Pipelines Using Prometheus and Grafana 25
+Step #3:Install Python Dependencies
+The requirement.txt file contains the dependencies for the custom exporter. So lets run the following command.
+
+pip3 install -r requirement.txt
+Monitor GitLab Pipelines Using Prometheus and Grafana 26
+Monitor GitLab Pipelines Using Prometheus and Grafana
+Step #4:Build and Start the Services
+Build the Docker containers.
+
+docker-compose build
+Monitor GitLab Pipelines Using Prometheus and Grafana 27
+Start the services.
+
+docker-compose up -d
+Monitor GitLab Pipelines Using Prometheus and Grafana 28
+Check running containers.
+
+docker ps -a
+Monitor GitLab Pipelines Using Prometheus and Grafana 29
+Step #5:Access the Services
+Visit http://<EC2-Public-IP>:9090 to verify data collection. Below you can see the Prometheus UI.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 30
+Go to the Status > Targets page to verify that both exporters (monitoring and monitoring_manual) are being scraped successfully.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 31
+Now the customized metrics should be available. Visit http://<EC2-Public-IP>:8500/metrics.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 32
+Visit http://<EC2-Public-IP>:8080/metrics.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 33
+Step #6:Configure Grafana and Visualize the metrics
+Access grafana by running http://<EC2-Public-IP>:3000.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 34
+Enter admin as a default Username and Password.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 35
+Now go to Connections > Data sources.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 36
+Click on Add data source.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 37
+Select Prometheus as a data source.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 38
+Enter the your prometheus url.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 39
+Click on save and test. You will get the message Successfully queried the prometheus API. Then go to “+” icon at up-right corner.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 40
+Select New dashboard.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 41
+Click on Add visualisation.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 42
+Select Prometheus as a data source.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 43
+Enter the query In Metric – gitlab_branch_count. It will tell us the count of existing branches within the project. Also select job = monitoring_manual. Click on Run queries.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 44
+Below is our output it showing that 1 branch is connected to our project, you can run different query. This is a Gauge visualization you can also change it.
+
+Monitor GitLab Pipelines Using Prometheus and Grafana 45
+Conclusion:
+
+In conclusion, we’ve successfully set up monitoring for GitLab pipelines using Prometheus and Grafana. By setting up Prometheus and Grafana to monitor GitLab pipelines, you can gain valuable insights into your CI/CD workflows. With real-time data and intuitive dashboards, you’ll be better equipped to troubleshoot issues, optimize performance, and ensure smoother deployments.
