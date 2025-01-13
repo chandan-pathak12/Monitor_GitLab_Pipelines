@@ -1,0 +1,23 @@
+log:
+  level: info
+
+gitlab:
+  url: https://gitlab.com
+  token: 'glpat-XXXXXXXXXXXyvEA'
+
+# Example public projects to monitor
+projects:
+  - name: devOps
+    # Pull environments related metrics prefixed with 'stable' for this project
+    pull:
+      environments:
+        enabled: true
+      refs:
+        branches:
+          # Monitor pipelines related to project branches
+          enabled: true
+
+          regexp: ".*"
+        merge_requests:
+      
+          enabled: true
